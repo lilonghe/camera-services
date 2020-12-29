@@ -9,6 +9,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type canonSearchItem struct {
@@ -19,21 +20,27 @@ type canonSearchItem struct {
 }
 
 func LoadCanonUpdates() error {
-	canon := model.Camera{Id: 1}
-	_, err := db.Store.Where("id = ?", 1).Get(&canon)
+	canonList := make([]model.Camera, 0)
+	err := db.Store.Where("company = 'Canon'").Find(&canonList)
 	if err != nil {
 		return err
 	}
-	err, updateList := searchMachineByUrl(canon.UpdateUrl)
-	log.Println(updateList)
-	if err != nil {
-		return err
-	}
-	for _, info := range updateList {
-		err = checkUpdateInfo(info, canon.Id)
+	for _, canon := range canonList {
+		_, err := db.Store.Where("id = ?", canon.Id).Get(&canon)
 		if err != nil {
 			return err
 		}
+		err, updateList := searchMachineByUrl(canon.UpdateUrl)
+		if err != nil {
+			return err
+		}
+		for _, info := range updateList {
+			err = checkUpdateInfo(info, canon.Id)
+			if err != nil {
+				return err
+			}
+		}
+		time.Sleep(1 * time.Second)
 	}
 
 	return nil
@@ -47,7 +54,7 @@ func checkUpdateInfo(info canonSearchItem, cameraId int) error {
 	}
 	if !has {
 		version.TrackId = info.TrackId
-		version.CameraId = 1
+		version.CameraId = cameraId
 		version.Description = info.Description
 		version.Title = info.Title
 		_, err = db.Store.InsertOne(version)
@@ -83,7 +90,7 @@ func searchMachineByUrl(url string) (error, []canonSearchItem) {
 		itemQuery := query + `:nth-child(` + strconv.FormatInt(int64(i)+1, 10) + `)`
 		if err := chromedp.Run(ctx,
 			chromedp.Text(itemQuery+` .js_title`, &infoItem.Title),
-			chromedp.Text(itemQuery+` p`, &infoItem.Description),
+			chromedp.InnerHTML(itemQuery+` p`, &infoItem.Description),
 		); err != nil {
 			log.Fatal(err)
 			return err, nil
